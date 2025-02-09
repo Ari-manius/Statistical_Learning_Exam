@@ -1,0 +1,439 @@
+---
+title: "Statistical Learning - Homework Exercise 2"
+editor: visual
+author: Marius Helten - 1406810
+format:
+  html:
+    embed-resources: true
+---
+
+# Data Preparation and Setup
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(error = TRUE)
+#reticulate::use_python("/Users/ramius/.pyenv/versions/3.10.0/envs/pytorch_3.10.0")
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+#packages used: 
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(randomForest)
+library(torch)
+library(reshape2)
+library(pROC)
+library(ggplot2)
+library(class)
+library(tibble)
+library(ggrepel)
+
+torch_manual_seed(33)
+set.seed(33)
+```
+
+```{r}
+#| message: false
+#| warning: false
+
+# Load and preprocess data
+df <- read_csv("/Users/ramius/Desktop/CodeVault/01_Project/Uni/SL_StatisticalLearning/SL Exam/apple_quality.csv")
+df <- as.data.frame(df)
+df <- df[1:4000, ] # exclude last NA value
+df$Quality <- as.integer(df$Quality == "good")  # 1 is good, 0 is bad
+df <- df[, 2:9]  # Drop unique ID's
+
+# Split into features (X) and target (y)
+X <- as.matrix(df[, -ncol(df)])  # All columns except the last because target
+X <- apply(X, 2, as.numeric)     # Ensure all columns are numeric
+X <- scale(X,center = TRUE, scale = TRUE)                    # Standardize features
+
+y <- df[, ncol(df)]              # Last column is the target
+```
+
+------------------------------------------------------------------------
+
+# Task 1) Neural Network
+
+```{r}
+#Architecture of Richy
+Richy <- nn_module(
+  initialize = function(input_size) {
+    self$input <- nn_linear(input_size, 512)
+    self$fc1 <- nn_linear(512, 256)
+    self$fc2 <- nn_linear(256, 128) # trial and error for layer sizes
+    self$fc3 <- nn_linear(128, 64)
+    self$output <- nn_linear(64, 1)  
+    self$dropout <- nn_dropout(0.1) # neurons in that layer will be randomly turned off in each training step.(prevent overfitting)
+  },
+  forward = function(x) {
+    x %>% 
+      self$input() %>% nnf_relu() %>% self$dropout() %>%
+      self$fc1() %>% nnf_relu() %>% self$dropout() %>% # kept relu
+      self$fc2() %>% nnf_relu() %>% self$dropout() %>%
+      self$fc3() %>% 
+      self$output() %>% nnf_sigmoid() #sigmoid for binary
+  }
+)
+```
+
+```{r}
+# Initialize training parameters
+train_loss_history <- numeric()
+val_loss_history <- numeric()
+train_accuracy_history <- numeric()
+test_accuracy_history <- numeric()
+best_model_history <- numeric()
+
+num_epochs <- 250 #max learning epochs
+batch_size <- 50 #batch learnining 
+patience <- 10 #STOP 
+
+# Create folds
+k <- 5  # Number of folds
+folds <- sample(rep(1:k, length.out = nrow(X)))
+
+# K-Fold Cross-Validation
+for (fold in 1:k) {
+  print(paste("Testing on fold", fold, "and training on all other folds"))
+  
+  # Split data into training and validation sets
+  train_indices <- which(folds %in% setdiff(1:k, fold))
+  val_indices <- which(folds == fold)
+  
+  X_train_fold <- X[train_indices, ]
+  y_train_fold <- y[train_indices]
+  X_val_fold <- X[val_indices, ]
+  y_val_fold <- y[val_indices]
+  
+  # Initialize model, criterion, and optimizer
+  model <- Richy(input_size = ncol(X))
+  criterion <- nn_bce_loss()
+  optimizer <- optim_adam(model$parameters, lr = 0.001, weight_decay = 0.01)
+  
+  best_val_loss <- Inf
+  epochs_without_improvement <- 0
+  best_model_state <- NULL
+  
+  # Training loop
+  for (epoch in 1:num_epochs) {
+    model$train()
+    total_loss <- 0
+    num_batches <- ceiling(nrow(X_train_fold) / batch_size)
+    
+    # Shuffle dataset
+    perm <- sample(1:nrow(X_train_fold))
+    X_train_shuffled <- X_train_fold[perm, ]
+    y_train_shuffled <- y_train_fold[perm]
+    
+    # Batch training
+    for (i in 1:num_batches) {
+      start_idx <- (i - 1) * batch_size + 1
+      end_idx <- min(i * batch_size, nrow(X_train_fold))
+      
+      X_batch <- torch_tensor(as.matrix(X_train_shuffled[start_idx:end_idx, ]), dtype = torch_float())
+      y_batch <- torch_tensor(as.numeric(y_train_shuffled[start_idx:end_idx]), dtype = torch_float())$view(c(-1, 1))
+      
+      optimizer$zero_grad()
+      outputs <- model(X_batch)
+      loss <- criterion(outputs, y_batch)
+      loss$backward()
+      optimizer$step()
+      
+      total_loss <- total_loss + loss$item()
+    }
+    
+    # Model evaluation and validation
+    avg_train_loss <- total_loss / num_batches
+    train_loss_history <- c(train_loss_history, avg_train_loss)
+    
+    model$eval()
+    val_outputs <- model(torch_tensor(as.matrix(X_val_fold), dtype = torch_float()))
+    val_loss <- criterion(val_outputs, torch_tensor(as.numeric(y_val_fold), dtype = torch_float())$view(c(-1, 1)))
+    val_loss_history <- c(val_loss_history, val_loss$item())
+    
+    train_accuracy <- mean(as.factor(round(as.numeric(model(torch_tensor(as.matrix(X_train_fold), dtype = torch_float()))))) == as.factor(as.numeric(y_train_fold)))
+    train_accuracy_history <- c(train_accuracy_history, train_accuracy)
+    
+    test_outputs <- model(torch_tensor(as.matrix(X_val_fold), dtype = torch_float()))
+    test_accuracy <- mean(as.factor(round(as.numeric(test_outputs))) == as.factor(as.numeric(y_val_fold)))
+    test_accuracy_history <- c(test_accuracy_history, test_accuracy)
+    
+    # Early stopping
+    if (val_loss$item() < best_val_loss) {
+      best_val_loss <- val_loss$item()
+      epochs_without_improvement <- 0
+      best_model_state <- model$state_dict()
+    } else {
+      epochs_without_improvement <- epochs_without_improvement + 1
+    }
+    
+    if (epochs_without_improvement >= patience) {
+      break  # Stop training if no improvement
+    }
+  }
+  
+  if (!is.null(best_model_state)) {
+    model$load_state_dict(best_model_state)
+  }
+  
+  best_model_history <- c(best_model_history, test_accuracy)
+  print(test_accuracy)
+}
+
+print(mean(best_model_history))
+```
+
+------------------------------------------------------------------------
+
+## Visualization for Report
+
+```{r}
+#| message: false
+#| warning: false
+
+history <- data.frame(
+  epoch = 1:length(train_loss_history),
+  train_loss = train_loss_history,
+  val_loss = val_loss_history,
+  train_accuracy = train_accuracy_history,
+  test_accuracy = test_accuracy_history
+)
+
+df_melt <- melt(history, id.vars = "epoch", 
+                 variable.name = "metric", value.name = "value")
+
+ggplot(df_melt, aes(x = epoch, y = value, color = metric)) +
+  geom_line(size = .5, alpha=0.8) +
+  labs(y = "Accuracy and Loss", x = "Training Epochs counted over all Folds") +
+  scale_color_manual(values = c("train_loss" = "blue", "val_loss" = "red",
+                                "train_accuracy" = "green", "test_accuracy" = "purple"),
+                     labels = c("Train Loss", "Validation Loss", 
+                                "Train Accuracy", "Validation Accuracy")) +
+  theme_dark()
+```
+
+------------------------------------------------------------------------
+
+# Task 2: Baseline Comparison with Traditional SL Models
+
+```{r}
+k <- 5  # Number of folds
+folds <- sample(rep(1:k, length.out = nrow(X)))
+
+best_model_history_rf <- numeric()
+
+# K-Fold Cross-Validation
+for (fold in 1:k) {
+  print(paste("Testing on fold", fold, "and training on all other folds"))
+  
+  # Split data into training and validation sets
+  train_indices <- which(folds != fold)
+  val_indices <- which(folds == fold)
+  
+  X_train_fold <- X[train_indices, ]
+  y_train_fold <- y[train_indices]
+  X_val_fold <- X[val_indices, ]
+  y_val_fold <- y[val_indices]
+  
+  # Train Random Forest model
+  rf_model <- randomForest(
+    x = X_train_fold,               # Training data (features)
+    y = as.factor(y_train_fold),     # Target variable (as factor for classification)
+    ntree = 500,                     # Number of trees (adjustable)
+    mtry = sqrt(ncol(X_train_fold)), # Features considered at each split
+    importance = TRUE,               # Calculate feature importance
+    proximity = TRUE                  # Compute proximity matrix (optional)
+  )
+  
+  # Make predictions on validation set
+  predictions <- predict(rf_model, newdata = X_val_fold)
+  
+  # Calculate accuracy
+  test_accuracy <- mean(predictions == as.factor(y_val_fold))
+  best_model_history_rf <- c(best_model_history_rf, test_accuracy)
+}
+
+# Print the accuracy for each fold
+print(mean(best_model_history_rf))
+  
+```
+
+------------------------------------------------------------------------
+
+## Visualizations for Report
+
+```{r}
+#confusion matrix
+confusion_rf <- confusionMatrix((predict(rf_model, X_val_fold)), as.factor(y_val_fold))
+confusion_rf_df <- as.data.frame(confusion_rf$table)
+confusion_rf_df$Data <- "Random Forest"
+
+confusion_train <- confusionMatrix(as.factor(round(as.numeric(model(X_val_fold)))), as.factor(y_val_fold))
+confusion_train_df <- as.data.frame(confusion_train$table)
+confusion_train_df$Data <- "Neural Network"
+
+confusion_df <- rbind(confusion_train_df, confusion_rf_df)
+
+# Create a heatmap for the confusion matrices
+ggplot(confusion_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 5) +
+  facet_wrap(~ Data) +
+  labs(x = "Reference",
+       y = "Prediction",
+       fill = "Frequency") +
+  theme_dark() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#metrics histplot
+NeuralNetwork <- confusion_train$byClass
+RandomForest <- confusion_rf$byClass
+
+combined_metrics_df <- cbind(
+  NN = as.data.frame(NeuralNetwork),
+  RF = as.data.frame(RandomForest)
+)
+
+combined_metrics_df <- combined_metrics_df %>%
+  rownames_to_column(var = "Metric")
+
+long_metrics_df <- combined_metrics_df %>%
+  pivot_longer(
+    cols = -Metric, 
+    names_to = "Data",  
+    values_to = "Value" 
+  )
+
+ggplot(long_metrics_df, aes(x = Metric, y = Value, fill = Data)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Metric",
+    y = "Value",
+    fill = "Data"
+  ) +
+  theme_dark() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#accuracy with CI
+ci_result <- t.test(best_model_history, conf.level = 0.95)
+ci_result_rf <- t.test(best_model_history_rf, conf.level = 0.95)
+
+NeuralNetwork <- c(ci_result$conf.int[1], ci_result$conf.int[2])
+RandomForest <- c(ci_result_rf$conf.int[1], ci_result_rf$conf.int[2])
+
+combined_metrics_df <- data.frame(
+  Model = c("Neural Network", "Random Forest"),
+  AccuracyLower = c(NeuralNetwork[1], RandomForest[1]),
+  AccuracyUpper = c(NeuralNetwork[2], RandomForest[2])
+)
+
+combined_metrics_df$MeanAccuracy <- rowMeans(combined_metrics_df[, c("AccuracyLower", "AccuracyUpper")])
+
+# Plot the confidence intervals
+ggplot(combined_metrics_df, aes(x = Model, y = MeanAccuracy)) +
+  geom_point(size = 4, color = "red") +  # Mean accuracy
+  geom_errorbar(aes(ymin = AccuracyLower, ymax = AccuracyUpper), width = 0.2, color = "blue") +  # Confidence intervals
+  geom_text(aes(label = paste("Mean:", round(MeanAccuracy, 3), 
+                               "\nCI: [", round(AccuracyLower, 3), ", ", round(AccuracyUpper, 2), "]")), 
+            vjust = -1, hjust=1, color = "black", size = 4) +  # Add mean accuracy and CI labels
+  labs(
+       x = "Model",
+       y = "Accuracy") +
+  theme_dark()
+
+```
+
+```{r}
+#Precision-recall Plot
+true_labels_numeric <- y_val_fold  
+nn_probabilities <- as.numeric(model(X_val_fold))  
+pr_nn <- pr.curve(scores.class0 = nn_probabilities, 
+                  weights.class0 = true_labels_numeric, 
+                  curve = TRUE)
+
+rf_probabilities <- predict(rf_model, X_val_fold, type = "prob")[, 2]
+pr_rf <- pr.curve(scores.class0 = rf_probabilities, 
+                  weights.class0 = true_labels_numeric, 
+                  curve = TRUE)
+
+pr_curves <- bind_rows(
+  data.frame(pr_nn$curve, Model = "Neural Network"),
+  data.frame(pr_rf$curve, Model = "Random Forest")
+)
+colnames(pr_curves) <- c("Recall", "Precision", "Threshold", "Model")
+
+auc_values <- c(
+  "Random Forest" = pr_rf$auc.integral,
+  "Neural Network" = pr_nn$auc.integral
+)
+
+ggplot(pr_curves, aes(x = Recall, y = Precision, color = Model)) +
+  geom_line(linewidth = 1) +
+  geom_hline(yintercept = mean(true_labels_numeric), 
+             linetype = "dashed", color = "gray") +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(title = sprintf("AUC RF = %.3f, AUC NN = %.3f",
+                       auc_values["Random Forest"], auc_values["Neural Network"]),
+       x = "Recall",
+       y = "Precision") +
+  theme_dark() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+------------------------------------------------------------------------
+
+# Appendix
+
+## PCA
+
+```{r}
+df_pca <- prcomp(X, center = TRUE, scale. = TRUE) 
+
+pca_df <- data.frame(df_pca$x[, 1:2], Target = as.factor(df$Quality))
+
+colnames(pca_df) <- c("PC1", "PC2", "Target")
+
+# Scree Plot: Variance explained by each principal component
+explained_var <- df_pca$sdev^2 / sum(df_pca$sdev^2) * 100
+scree_df <- data.frame(PC = seq_along(explained_var), Variance = explained_var)
+
+# PCA Loadings: Most important variables for PC1 and PC2
+loadings <- as.data.frame(df_pca$rotation[, 1:2])
+loadings$Feature <- rownames(loadings)
+
+top_features_pc1 <- loadings %>% arrange(desc(abs(PC1))) %>% head(5)
+top_features_pc2 <- loadings %>% arrange(desc(abs(PC2))) %>% head(5)
+
+
+ggplot(scree_df, aes(x = PC, y = Variance)) +
+  geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+  geom_line(aes(group = 1), color = "black") +
+  geom_point(color = "red", size = 2) +
+  labs(x = "Principal Component", y = "Explained Variance (%)") +
+  theme_dark()
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Target)) +
+  geom_point(alpha = 0.5, size = 1) +
+  labs(x = "Principal Component 1", y = "Principal Component 2") +
+  theme_dark() +
+  scale_color_discrete(name = "Quality")
+
+ggplot(loadings, aes(x = PC1, y = PC2, label = Feature)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_text_repel(size = 4, color = "black") +
+  labs(x = "PC1 Contribution", y = "PC2 Contribution") +
+  theme_dark()
+```
+
+------------------------------------------------------------------------
