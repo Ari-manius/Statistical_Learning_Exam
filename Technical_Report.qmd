@@ -4,54 +4,37 @@ author:
   - name: "Marius Helten"
     affiliation: "1406810"
 editor: visual
-date: "`r format(Sys.Date(), '%B %d, %Y')`"  # Automatically include the current date
+date: "`r format(Sys.Date(), '%B %d, %Y')`" 
 format:
   pdf:
     fig-width: 6
     fig-height: 3
-    keep-tex: true  # Optional: Keep the intermediate .tex file
+    keep-tex: false  
     colorlinks: true
     documentclass: report
     links-as-notes: true
 header-includes:
-  - \usepackage{titling}  # Use the titling package for custom title formatting
-  - \pretitle{\begin{center}\LARGE\bfseries}  # Format for the title
-  - \posttitle{\end{center}}  # End the title formatting
-  - \preauthor{\begin{center} \large}  # Format for the author
-  - \postauthor{\end{center}}  # End the author formatting
-  - \predate{\begin{center}\large}  # Format for the date
+  - \usepackage{titling}  
+  - \pretitle{\begin{center}\LARGE\bfseries} 
+  - \posttitle{\end{center}}  
+  - \preauthor{\begin{center} \large} 
+  - \postauthor{\end{center}} 
+  - \predate{\begin{center}\large} 
   - \postdate{\begin{figure}[h]
       \centering
       \includegraphics[width=0.8\textwidth]{images/I1.png}
     \end{figure}
-    \url{www.example.com}
-    \end{center}}  # End the date formatting
+    \url{https://github.com/Ari-manius/Statistical_Learning_Exam}
+    \end{center}} 
 ---
 
 ```{r setup, echo = FALSE}
 knitr::opts_chunk$set(error = TRUE)
 ```
 
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-
-library(tidyverse)
-library(dplyr)
-library(tidyr)
-library(ComplexHeatmap)
-library(circlize)
-library(ggplot2)
-library(skimr)
-
-df <- read_csv("/Users/ramius/Desktop/CodeVault/01_Project/Uni/SL_StatisticalLearning/SL Exam/apple_quality.csv")
-df <- df[1:4000, ]
-```
-
 ## Introduction
 
-Food and perishable goods are critical products in societies worldwide and provide great challenges for industry and consumers alike. The quality of the goods is constantly changing during the lifetime of the products, and many precautions have to be taken in order to control and maintain the quality; this includes proper harvest and storage, cooling chains, and other measures. Therefore a quick and easy way of classifying the quality of individual items is a major concern.
+Food and perishable goods are critical products in societies worldwide and provide great challenges for industry and consumers alike. The quality of the goods is constantly changing during the lifetime of the products, and many precautions have to be taken in order to control and maintain the quality; this includes proper harvest and storage, cooling chains, and other measures. Therefore a quick and easy way of classifying the quality of individual items is a major concern, a few rotten apples will spoil the bunch.
 
 In the following report, we present a comparative study of a supervised learning classification problem with an approach from deep learning and a comparative approach from "traditional" machine learning. The central question is if, based on the available data, we can create neural network models that can reliably predict the quality of an apple based on its features.
 
@@ -65,87 +48,43 @@ For the training and evaluation of the models, we will use a dataset that was ge
 
 We will start off with an exploratory analysis of the dataset and take a look at the individual distributions of the features. A model can only be as good as the data it is based on.
 
-```{r}
-#| eval: false
-#| message: false
-#| warning: false
-#| include: false
-# Create a histogram
-ggplot(df, aes(x = Quality)) +
-  geom_bar(fill = "purple", color = "black") +
-  labs(title = "Quality Distribution for Dataset", x = "Quality Category", y = "Count") +
-  theme_dark()
-```
-
-It is very interesting that our dataset contains a sample that is distributed almost perfectly 50/50 into good and bad apples in a uniform distribution, so it seems to be more than just a few bad apples. This at least hints at a stratified sample in the selection of our data. \
+It is very interesting that our dataset contains a sample that is distributed almost perfectly 50/50 into good and bad apples in a uniform distribution, so it seems to be more than just a few bad apples. This at least hints at a stratified sample in the selection of our data.\
 We also do not have any information about the quality classification itself, so we do not know how the category was constructed and why apples were classified either way. This will have a big influence on our further analysis, though, since we are trying to classify for exactly these two categories.
-
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-
-library(tibble)
-library(gt)
-
-df$Acidity <- as.numeric(df$Acidity)
-df$Quality <- as.integer(df$Quality == "good")  # 1 is good, 0 is bad
-
-df_skim <-skim(df)
-result_table <- data.frame(
-  Variable = df_skim$skim_variable,
-  Mean = round(df_skim$numeric.mean,2),
-  SD = round(df_skim$numeric.sd,2)
-)
-
-quality_table <- data.frame(Quality = df$Quality)
-
-tabl <- tibble(result_table)
-gt_tbl <- gt(tabl) %>%
-  tab_header(
-    title = "Table 1: Summary Statistics of Dataset Variables"
-  )
-
-gt_tbl
-```
-
-Statistical measures like mean and standard deviation give us a first impression as to what we are dealing with. The A_id do not provide us with any useful information for our problem and will be excluded from here on. The other features have some variance and also different means, and so might provide us with useful variance.
-
-```{r fig.cap="Boxplots of Feature Distributions"}
-#| message: false
-#| warning: false
-#| include: false
-
-df$Acidity <- as.numeric(df$Acidity)
-df$Quality <- as.factor(df$Quality)
-
-# Convert numerical columns to long format for ggplot2
-df_long <- pivot_longer(df, cols = c(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity), names_to = "variable", values_to = "value")
-
-# Plot density plots for all numerical variables
-ggplot(df_long, aes(x = value, fill = Quality, y= Quality)) +
-  geom_boxplot(alpha = 0.7) +
-  facet_wrap(~ variable, scales = "free") +
-  xlab("Attribute Values") + 
-  theme_dark()
-```
-
-The box plots (1.a) confirm the impression from the statistical measures. We can see that there are differences between the centers of the distribution of the attributes for each of our quality categories; the areas where the distributions don't overlap are the areas where we can distinguish between the quality categories.
-
-The variables are all unimodal normal distributions, which is pretty natural for variables such as size and weight. Also, some outliers are part of the distributions (points in the box plots); these were kept due to a limited amount of data.
 
 \begin{figure}[h]
     \begin{subfigure}{0.45\textwidth} % Adjust width as needed
         \centering
-        \includegraphics[width=\textwidth]{images/BP1.png}
-        \caption{Box Plots}
+        \includegraphics[width=\textwidth]{images/T1.png}
+        \caption{Summary Statistics for Dataset}
         \label{fig:scree_plot}
     \end{subfigure}
     \hfill % This adds space between the two subfigures
     \begin{subfigure}{0.45\textwidth} % Adjust width as needed
         \centering
+        \includegraphics[width=\textwidth]{images/BP1.png}
+        \caption{Boxplot for Single Distributions}
+        \label{fig:pca_result}
+    \end{subfigure}
+    \caption{Single Distributions and Summary Statistics}
+    \label{fig:pca_combined}
+\end{figure}
+
+Statistical measures like mean and standard deviation give us a first impression as to what we are dealing with. The A_id do not provide us with any useful information for our problem and will be excluded from here on. The other features have some variance and also different means, and so might provide us with useful variance.
+
+The box plots (1.b) confirm the impression from the statistical measures. We can see that there are differences between the centers of the distribution of the attributes for each of our quality categories; the areas where the distributions don't overlap are the areas where we can distinguish between the quality categories. The variables are all uni-modal normal distributions, which is pretty natural for variables such as size and weight. Also, some outliers are part of the distributions (points in the box plots); these were kept due to a limited amount of data.
+
+\begin{figure}[h]
+    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+        \centering
         \includegraphics[width=\textwidth]{images/HM1.png}
         \caption{Correlation Heatmap}
+        \label{fig:scree_plot}
+    \end{subfigure}
+    \hfill % This adds space between the two subfigures
+    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+        \centering
+        \includegraphics[width=\textwidth]{images/PCA3.png}
+        \caption{PCA Loadings for PC1 and PC2}
         \label{fig:pca_result}
     \end{subfigure}
     \caption{Single Distributions and Pairwise Correlations for Features}
@@ -154,67 +93,15 @@ The variables are all unimodal normal distributions, which is pretty natural for
 
 #### Attribute Correlation Heatmap
 
-```{r fig.cap="Correlation Matrix of Features"}
-#| message: false
-#| warning: false
-#| include: false
-
-cor_good <- df %>%
-  filter(Quality == 1) %>%  
-  select(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity) %>%
-  cor(use = "complete.obs")
-cor_bad <- df %>%
-  filter(Quality == 0) %>%  
-  select(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity) %>%
-  cor(use = "complete.obs")
-
-upper_tri <- cor_good
-upper_tri[lower.tri(upper_tri, diag = FALSE)] <- NA 
-lower_tri <- cor_bad
-lower_tri[upper.tri(lower_tri, diag = FALSE)] <- NA
-
-
-combined_matrix <- upper_tri
-combined_matrix[lower.tri(combined_matrix, diag = FALSE)] <- lower_tri[lower.tri(lower_tri)]
-
-Heatmap(
-  combined_matrix,
-  name = "Correlation Matrix",
-  col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
-  rect_gp = gpar(col = "black", lwd = 1),
-  cluster_rows = FALSE,
-  cluster_columns = FALSE,
-  row_names_side = "left",
-  column_names_side = "top",
-  heatmap_legend_param = list(title = "Correlation"),
-
-  layer_fun = function(j, i, x, y, w, h, fill) {
-    mask <- i != j 
-    grid.text(
-      ifelse(i[mask] < j[mask], "Good", "Bad"),  
-      x = x[mask], y = y[mask],
-      gp = gpar(fontsize = 8, col = "black")
-    )
-  }
-)
-```
-
-The next step after looking at single attributes is to look at more attributes at the same time. (1.b) The attributes on the diagonal are perfectly correlated with each other. The other blue and red fields provide attribute combinations that increase together or go in opposite directions. Also fascinating are pairs where the bad and good quality have an opposite signed correlation because it suggests that the relationship between those features will flip depending on the quality category.
+The next step after looking at single attributes is to look at more attributes at the same time. (2.a) The attributes on the diagonal are perfectly correlated with each other. The other blue and red fields provide attribute combinations that increase together or go in opposite directions. Also fascinating are pairs where the bad and good quality have an opposite signed correlation because it suggests that the relationship between those features will flip depending on the quality category.
 
 #### PCA - Principal Component Analysis
 
-Working with high-dimensional data introduces significant challenges, as representation and analysis become increasingly complex in such spaces. Specialized methods exist to address these challenges. A good example is the PCA, a technique that generates a set of principal components ordered by their explanatory strength. These components capture the maximum variance in the data, effectively providing a lower-dimensional representation of the high-dimensional dataset while preserving its most critical information. The PCA Loadings (2) shows how much influence each attribute has and also infers about relations between them; for example, ripeness and acidity seem to have an opposing relation, and sweetness and juiciness, as well as crunchiness and size, seem to be similar.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.6\textwidth]{images/PCA3.png}
-  \caption{PCA Loadings for PC1 and PC2}
-  \label{fig:pca_combined}
-\end{figure}
+Working with high-dimensional data introduces significant challenges, as representation and analysis become increasingly complex in such spaces. A good example for a method that is able to deal with this is the PCA, a technique that generates a set of principal components ordered by their explanatory strength. These components capture the maximum variance in the data. The PCA Loadings (2.b) shows how much influence each attribute has and also infers something about relationships between them; for example, ripeness and acidity seem to have an opposing relation, and sweetness and juiciness, as well as crunchiness and size, seem to be similar.
 
 ### Feature Selection and Data Preprocessing
 
-The dataset contains only limited amounts of data; therefore, all features were kept, except for the unique ID's, since they provide no relevant information and might compromise the training of the models. The numerical features were scaled through z-standardization, and the target variable of quality was turned into a dummy variable (0: Bad / 1: Good).
+The dataset contains only limited amounts of data; therefore, all features were kept, except for the unique ID's, since they provide no relevant information and might compromise the training of the models. The numerical features were centered and scaled through z-standardization, and the target variable of quality was turned into a dummy variable (0: Bad / 1: Good).
 
 ## Methods
 
@@ -253,8 +140,6 @@ As comparison for our model we used a Random Forest classifier it is an ensemble
 
 ## Results
 
-The first graph (3) shows the neural network model during training. We can see very well that as training progresses, the loss of the model through false predictions gets smaller, while the accuracy rises through correct predictions. The minimal divergence between training and validation results for loss and accuracy is a good sign, as this shows our model is not over-fitting to the training data. The longer training continues, the more we run the risk of adapting our model too much to the training data (over-fitting); this is why we stop learning. We can see very well the diminishing returns as training progresses. We can also see the cross-fold validation, since in each iteration the model is trained again from scratch.
-
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.6\textwidth]{images/NN1.png}
@@ -262,19 +147,17 @@ The first graph (3) shows the neural network model during training. We can see v
   \label{fig:pca_combined}
 \end{figure}
 
-Below (4.a), we can see all the different fields of the confusion matrix. If we wanted to optimize the average quality of our sold apples without caring about waste, we would choose a model with as few false positives as possible, while tolerating some bad apples to increase throughput would lower false negatives, so it heavily depends on the use case, we maximized accuracy (True-Positives).
-
-The neighboring graph (4.b) shows the 95% confidence interval for the accuracy of the neural network and random forest, the CI was calculated by k-fold cross-validation. We can see that the neural network outperforms the other approaches, with an accuracy of close to 94%. Taking a look at other evaluative metrics (5.a) for the machine learning models, this impression gets confirmed. The neural network is the stronger across the board for all metrics. Including Recall, F1 Balanced Accuracy, Specificity and Precision.
+The first graph (3) shows the neural network model during training. We can see very well that as training progresses, the loss of the model through false predictions gets smaller, while the accuracy rises through correct predictions. The minimal divergence between training and validation results for loss and accuracy is a good sign, as this shows our model is not over-fitting to the training data. The longer training continues, the more we run the risk of adapting our model too much to the training data (over-fitting); this is why we stop learning. We can see very well the diminishing returns as training progresses. We can also see the cross-fold validation, since in each iteration the model is trained again from scratch.
 
 \begin{figure}[h]
-    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+    \begin{subfigure}{0.45\textwidth} 
         \centering
         \includegraphics[width=\textwidth]{images/NNRF4.png}
         \caption{Confusion Matrices for Predictions}
         \label{fig:scree_plot}
     \end{subfigure}
-    \hfill % This adds space between the two subfigures
-    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+    \hfill 
+    \begin{subfigure}{0.45\textwidth}
         \centering
         \includegraphics[width=\textwidth]{images/NNRF2.png}
         \caption{Model Accuracy with Confidence Intervall}
@@ -284,17 +167,17 @@ The neighboring graph (4.b) shows the 95% confidence interval for the accuracy o
     \label{fig:pca_combined}
 \end{figure}
 
-The following graph (6.b) shows the precision-recall curve. In our case, the curve only starts to dip at the very end, which is good because it means we are not losing F1 score while moving the threshold between precision and recall. The closer the AUC is to 1, the better the model distinguishes between positive and negative cases. We can also see some differences between the model.
+Below (4.a), we can see all the differesnt fields of the confusion matrix. If we wanted to optimize the average quality of our sold apples without caring about waste, we would choose a model with as few false positives as possible, while tolerating some bad apples to increase throughput would lower false negatives, so it heavily depends on the use case, we maximized accuracy (True-Positives).
 
 \begin{figure}[h]
-    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+    \begin{subfigure}{0.45\textwidth} 
         \centering
         \includegraphics[width=\textwidth]{images/NNRF1.png}
         \caption{Evaluative Metrics}
         \label{fig:scree_plot}
     \end{subfigure}
-    \hfill % This adds space between the two subfigures
-    \begin{subfigure}{0.45\textwidth} % Adjust width as needed
+    \hfill
+    \begin{subfigure}{0.45\textwidth} 
         \centering
         \includegraphics[width=\textwidth]{images/NNRF3.png}
         \caption{Precision-Recall Curve with AUC}
@@ -304,10 +187,14 @@ The following graph (6.b) shows the precision-recall curve. In our case, the cur
     \label{fig:pca_combined}
 \end{figure}
 
+The neighboring graph (4.b) shows the 95% confidence interval for the accuracy of the neural network and random forest, the CI was calculated by k-fold cross-validation. We can see that the neural network outperforms the other approaches, with an accuracy of close to 94%. Taking a look at other evaluative metrics (5.a) for the machine learning models, this impression gets confirmed. The neural network is the stronger across the board for all metrics. Including Recall, F1 Balanced Accuracy, Specificity and Precision.
+
+The following graph (5.b) shows the precision-recall curve. In our case, the curve only starts to dip at the very end, which is good because it means we are not losing F1 score while moving the threshold between precision and recall. The closer the AUC is to 1, the better the model distinguishes between positive and negative cases. We can also see some differences between the model.
+
 ## Reflection
 
-The deep learning approach using a neural network proved to be useful and practical. While the other methods achieved respectable outcomes, the neural network's performance was superior. The computational costs were very limited during the analysis, but might prove problematic during scale-up. The high number of parameters made tuning challenging. Here a more comprehensive tuning approach could give even better results.
+The deep learning approach using a neural network proved to be fruitful and practical. While the other methods achieved respectable outcomes, the neural network's performance was superior. The computational costs were very limited during the analysis, but might prove problematic during scale-up. The high number of parameters made tuning challenging. Here a more comprehensive tuning approach would probably give better results for both models.
 
 A key drawback of neural networks is the lack of information; unlike methods such as PCA or decision trees, we cannot ascertain the relative importance of features, which can be important to explain the decision. Additionally, the validation and training were based on the current dataset, more data would lead to a more robust evaluation and training process.
 
-Concrete implementation goals and setting are essential when selecting the best model for a task. For instance, assessing if an apple is poisonous or edible vs. how it looks, is some cases might tolerate higher error rates in our classification than in others. Nonetheless, this example highlights the potential of data analysis and deep learning methods to address complex problems and the practicality of obtaining results with them.
+Concrete implementation goals and setting are essential when selecting the best model for a task. For instance, assessing if an apple is poisonous or edible vs. how it looks, is some cases might tolerate higher error rates in our classification than in others. Nonetheless, this example highlights the potential of data analysis and deep learning methods to address complex problems and the practicality of obtaining results with them. Comparing Apples and Oranges is possible.

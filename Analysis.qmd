@@ -31,10 +31,21 @@ library(ggplot2)
 library(class)
 library(tibble)
 library(ggrepel)
+library(tibble)
+library(gt)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ComplexHeatmap)
+library(circlize)
+library(ggplot2)
+library(skimr)
 
 torch_manual_seed(33)
 set.seed(33)
 ```
+
+Preparing the data for the machine learning
 
 ```{r}
 #| message: false
@@ -55,9 +66,112 @@ X <- scale(X,center = TRUE, scale = TRUE)                    # Standardize featu
 y <- df[, ncol(df)]              # Last column is the target
 ```
 
+visualizing single distribution for presentation
+
+```{r}
+#| echo: true
+# Create a histogram
+ggplot(df, aes(x = Quality)) +
+  geom_bar(fill = "purple", color = "black") +
+  labs(title = "Quality Distribution for Dataset", x = "Quality Category", y = "Count") +
+  theme_dark()
+```
+
+Summary of Statistical Measures
+
+```{r}
+#| echo: true
+df$Acidity <- as.numeric(df$Acidity)
+#df$Quality <- as.integer(df$Quality == "good")  # 1 is good, 0 is bad
+
+df_skim <-skim(df)
+result_table <- data.frame(
+  Variable = df_skim$skim_variable,
+  Mean = round(df_skim$numeric.mean,2),
+  SD = round(df_skim$numeric.sd,2)
+)
+
+quality_table <- data.frame(Quality = df$Quality)
+
+tabl <- tibble(result_table)
+
+# Create the gt table and adjust its size
+gt_tbl <- gt(tabl) %>%
+  tab_options(
+    table.font.size = "small",  # Reduce font size
+    table.width = pct(50)       # Set table width to 80% of the container
+  )
+
+gt_tbl
+```
+
+Boxplots for distributions
+
+```{r}
+#| echo: true
+df$Acidity <- as.numeric(df$Acidity)
+df$Quality <- as.factor(df$Quality)
+
+# Convert numerical columns to long format for ggplot2
+df_long <- pivot_longer(df, cols = c(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity), names_to = "variable", values_to = "value")
+
+# Plot density plots for all numerical variables
+ggplot(df_long, aes(x = value, fill = Quality, y= Quality)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ variable, scales = "free") +
+  xlab("Attribute Values") + 
+  theme_dark()
+```
+
+Correlation Heatmap separated by attribute
+
+```{r}
+#| echo: true
+cor_good <- df %>%
+  filter(Quality == 1) %>%  
+  select(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity) %>%
+  cor(use = "complete.obs")
+cor_bad <- df %>%
+  filter(Quality == 0) %>%  
+  select(Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity) %>%
+  cor(use = "complete.obs")
+
+upper_tri <- cor_good
+upper_tri[lower.tri(upper_tri, diag = FALSE)] <- NA 
+lower_tri <- cor_bad
+lower_tri[upper.tri(lower_tri, diag = FALSE)] <- NA
+
+
+combined_matrix <- upper_tri
+combined_matrix[lower.tri(combined_matrix, diag = FALSE)] <- lower_tri[lower.tri(lower_tri)]
+
+Heatmap(
+  combined_matrix,
+  name = "Correlation Matrix",
+  col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+  rect_gp = gpar(col = "black", lwd = 1),
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  row_names_side = "left",
+  column_names_side = "top",
+  heatmap_legend_param = list(title = "Correlation"),
+
+  layer_fun = function(j, i, x, y, w, h, fill) {
+    mask <- i != j 
+    grid.text(
+      ifelse(i[mask] < j[mask], "Good", "Bad"),  
+      x = x[mask], y = y[mask],
+      gp = gpar(fontsize = 8, col = "black")
+    )
+  }
+)
+```
+
 ------------------------------------------------------------------------
 
 # Task 1) Neural Network
+
+Constructing the neural network.
 
 ```{r}
 #Architecture of Richy
@@ -80,6 +194,8 @@ Richy <- nn_module(
   }
 )
 ```
+
+Training the network and recording the progress
 
 ```{r}
 # Initialize training parameters
@@ -192,6 +308,8 @@ print(mean(best_model_history))
 
 ## Visualization for Report
 
+Visualization of recorded metrics for report
+
 ```{r}
 #| message: false
 #| warning: false
@@ -221,6 +339,8 @@ ggplot(df_melt, aes(x = epoch, y = value, color = metric)) +
 
 # Task 2: Baseline Comparison with Traditional SL Models
 
+Random forest training and validation
+
 ```{r}
 k <- 5  # Number of folds
 folds <- sample(rep(1:k, length.out = nrow(X)))
@@ -231,7 +351,6 @@ best_model_history_rf <- numeric()
 for (fold in 1:k) {
   print(paste("Testing on fold", fold, "and training on all other folds"))
   
-  # Split data into training and validation sets
   train_indices <- which(folds != fold)
   val_indices <- which(folds == fold)
   
@@ -247,13 +366,10 @@ for (fold in 1:k) {
     ntree = 500,                     # Number of trees (adjustable)
     mtry = sqrt(ncol(X_train_fold)), # Features considered at each split
     importance = TRUE,               # Calculate feature importance
-    proximity = TRUE                  # Compute proximity matrix (optional)
+    proximity = TRUE                  
   )
   
-  # Make predictions on validation set
   predictions <- predict(rf_model, newdata = X_val_fold)
-  
-  # Calculate accuracy
   test_accuracy <- mean(predictions == as.factor(y_val_fold))
   best_model_history_rf <- c(best_model_history_rf, test_accuracy)
 }
@@ -266,6 +382,8 @@ print(mean(best_model_history_rf))
 ------------------------------------------------------------------------
 
 ## Visualizations for Report
+
+Confusion matrices
 
 ```{r}
 #confusion matrix
@@ -290,6 +408,8 @@ ggplot(confusion_df, aes(x = Reference, y = Prediction, fill = Freq)) +
   theme_dark() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+Visualize different metrics for both models
 
 ```{r}
 #metrics histplot
@@ -322,6 +442,8 @@ ggplot(long_metrics_df, aes(x = Metric, y = Value, fill = Data)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+Accuracy with confidence interval for comparison
+
 ```{r}
 #accuracy with CI
 ci_result <- t.test(best_model_history, conf.level = 0.95)
@@ -352,7 +474,10 @@ ggplot(combined_metrics_df, aes(x = Model, y = MeanAccuracy)) +
 
 ```
 
+Precision Recall CUrve
+
 ```{r}
+library(PRROC) 
 #Precision-recall Plot
 true_labels_numeric <- y_val_fold  
 nn_probabilities <- as.numeric(model(X_val_fold))  
@@ -394,6 +519,8 @@ ggplot(pr_curves, aes(x = Recall, y = Precision, color = Model)) +
 # Appendix
 
 ## PCA
+
+PCA for exploratory data analysis
 
 ```{r}
 df_pca <- prcomp(X, center = TRUE, scale. = TRUE) 
