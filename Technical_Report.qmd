@@ -34,9 +34,9 @@ knitr::opts_chunk$set(error = TRUE)
 
 ## Introduction
 
-Food and perishable goods are critical products in societies worldwide and provide great challenges for industry and consumers alike. The quality of the goods is constantly changing during the lifetime of the products, and many precautions have to be taken in order to control and maintain the quality; this includes proper harvest and storage, cooling chains, and other measures. Therefore a quick and easy way of classifying the quality of individual items is a major concern, a few rotten apples will spoil the bunch.
+Food and perishable goods are critical products in societies worldwide and provide great challenges for industry and consumers alike. The quality of the goods is constantly changing during the lifetime of the products, and many precautions have to be taken in order to control and maintain the quality; this includes proper harvest and storage and other measures. Therefore a quick and easy way of classifying the quality of individual items is a major concern, a few rotten apples can spoil the bunch.
 
-In the following report, we present a comparative study of a supervised learning classification problem with an approach from deep learning and a comparative approach from "traditional" machine learning. The central question is if, based on the available data, we can create neural network models that can reliably predict the quality of an apple based on its features.
+In the following report, we present a comparative study of a supervised learning classification problem with an approach from deep learning and a comparative approach from "traditional" machine learning. The central question is if we can create neural network models that can reliably predict the quality of an apple based on its features.
 
 For the training and evaluation of the models, we will use a dataset that was generously provided by an anonymous American agriculture [company](https://www.kaggle.com/datasets/nelgiriyewithana/apple-quality) with 4000 observations and the following variables, Unique ID, Size, Weight, Sweetness, Crunchiness, Juiciness, Ripeness, Acidity and Quality.
 
@@ -46,10 +46,7 @@ For the training and evaluation of the models, we will use a dataset that was ge
 
 #### Single Variables and their Distributions
 
-We will start off with an exploratory analysis of the dataset and take a look at the individual distributions of the features. A model can only be as good as the data it is based on.
-
-It is very interesting that our dataset contains a sample that is distributed almost perfectly 50/50 into good and bad apples in a uniform distribution, so it seems to be more than just a few bad apples. This at least hints at a stratified sample in the selection of our data.\
-We also do not have any information about the quality classification itself, so we do not know how the category was constructed and why apples were classified either way. This will have a big influence on our further analysis, though, since we are trying to classify for exactly these two categories.
+We will start off with an exploratory analysis of the dataset. A model can only be as good as the data. It is very interesting that our dataset contains a sample that is distributed almost perfectly 50/50 into good and bad apples in a uniform distribution, so it seems to be more than just a few bad apples. This at least hints at a stratified sample in the selection of our data. We also do not know how the category was constructed and why apples were classified either way. This will have a big influence on our further analysis, though, since we are trying to classify for exactly these two categories.
 
 \begin{figure}[h]
     \begin{subfigure}{0.45\textwidth} % Adjust width as needed
@@ -69,9 +66,9 @@ We also do not have any information about the quality classification itself, so 
     \label{fig:pca_combined}
 \end{figure}
 
-Statistical measures like mean and standard deviation give us a first impression as to what we are dealing with. The A_id do not provide us with any useful information for our problem and will be excluded from here on. The other features have some variance and also different means, and so might provide us with useful variance.
+Statistical measures (1.a) give us a first impression as to what we are dealing with. The A_id do not provide us with any useful information and will be excluded from here on. The other features have some variation, and so might provide us with useful variance.
 
-The box plots (1.b) confirm the impression from the statistical measures. We can see that there are differences between the centers of the distribution of the attributes for each of our quality categories; the areas where the distributions don't overlap are the areas where we can distinguish between the quality categories. The variables are all uni-modal normal distributions, which is pretty natural for variables such as size and weight. Also, some outliers are part of the distributions (points in the box plots); these were kept due to a limited amount of data.
+The box plots (1.b) confirm the first impression. We can see that there are differences between the centers of the distribution of the attributes for each of our quality categories. The variables are all uni-modal normal distributions, which is pretty natural for variables such as size and weight. Also, some outliers are part of the distributions (points in the box plots); these were kept due to a limited amount of data.
 
 \begin{figure}[h]
     \begin{subfigure}{0.45\textwidth} % Adjust width as needed
@@ -97,7 +94,7 @@ The next step after looking at single attributes is to look at more attributes a
 
 #### PCA - Principal Component Analysis
 
-Working with high-dimensional data introduces significant challenges, as representation and analysis become increasingly complex in such spaces. A good example for a method that is able to deal with this is the PCA, a technique that generates a set of principal components ordered by their explanatory strength. These components capture the maximum variance in the data. The PCA Loadings (2.b) shows how much influence each attribute has and also infers something about relationships between them; for example, ripeness and acidity seem to have an opposing relation, and sweetness and juiciness, as well as crunchiness and size, seem to be similar.
+A good example for a method that is able to deal with high-dimensional data is the PCA, a technique that generates a set of principal components ordered by their explanatory strength. These components capture the maximum variance in the data. The PCA Loadings (2.b) shows how much influence each attribute has and also infers something about relationships between them; for example, ripeness and acidity seem to have an opposing relation, and sweetness and juiciness, as well as crunchiness and size, seem to be similar.
 
 ### Feature Selection and Data Preprocessing
 
@@ -109,26 +106,17 @@ The dataset contains only limited amounts of data; therefore, all features were 
 
 #### Architecture
 
-The neural network is a feed-forward neural network (also known as a multi-layer perceptron, or MLP) designed for a binary classification task. For most on the neural net, we use the very efficient ReLU Rectified Linear Unit Activation Function. In the output layer the Sigmoid function gives us logarithmic odds, which we can transform into a binary classification. The dropout rate prevents over-fitting by knocking out random neurons on each pass. The model architecture for the hidden layers was chosen based on good practices and trial and error in the construction phase.
+The neural network is a feed-forward neural network designed for a binary classification task. For most on the neural net, we use the very efficient (ReLU) Rectified Linear Unit Activation Function. In the output layer the Sigmoid function gives us logarithmic odds, which we can transform into a binary classification. The dropout rate prevents over-fitting by knocking out random neurons on each pass. The model architecture for the hidden layers was chosen based on trial and error in the construction phase.
 
-1.  **Input Layer**:
+| Layer:   | Input: | Output: | Activation Function: | Dropout Rate: |
+|----------|--------|---------|----------------------|---------------|
+| Input    | 7      | 1024    | ReLU                 | Yes (10%)     |
+| Hidden 1 | 1024   | 512     | ReLU                 | Yes (10%)     |
+| Hidden 2 | 512    | 256     | ReLU                 | Yes (10%)     |
+| Hidden 3 | 256    | 128     | ReLU                 | No            |
+| Output   | 128    | 1       | Sigmoid              | No            |
 
-    -   Passes the input through a fully connected (dense) layer with 1024 units.
-    -   Applies the ReLU activation function
-
-2.  **Hidden Layers 1, 2, 3**:
-
-    -   A fully connected layer with 1024/512/256 input units and 521/256/128 output units.
-
-    -   Applies the ReLU activation function
-
-    -   Applies a dropout rate of 10% (1 & 2): share of neurons in that layer will be randomly turned off in each training step
-
-3.  **Output Layer**:
-
-    -   A fully connected layer with 128 input units and 1 output unit.
-
-    -   Applies the sigmoid activation function to produce a probability score between 0 and 1
+: Neural Network Model Architecture
 
 #### Training and Learning
 
@@ -147,7 +135,7 @@ As comparison for our model we used a Random Forest classifier it is an ensemble
   \label{fig:pca_combined}
 \end{figure}
 
-The first graph (3) shows the neural network model during training. We can see very well that as training progresses, the loss of the model through false predictions gets smaller, while the accuracy rises through correct predictions. The minimal divergence between training and validation results for loss and accuracy is a good sign, as this shows our model is not over-fitting to the training data. The longer training continues, the more we run the risk of adapting our model too much to the training data (over-fitting); this is why we stop learning. We can see very well the diminishing returns as training progresses. We can also see the cross-fold validation, since in each iteration the model is trained again from scratch.
+The first graph (3) shows very well that as training progresses, the loss of the model through false predictions gets smaller, while the accuracy rises through correct predictions. The minimal divergence between training and validation results for loss and accuracy is a good sign, as this shows our model is not over-fitting to the training data. The longer training continues, the more we run the risk of over-fitting; this is why we stop early. We can also see the cross-fold validation in the resets, since in each iteration the model is trained again from scratch.
 
 \begin{figure}[h]
     \begin{subfigure}{0.45\textwidth} 
@@ -167,7 +155,7 @@ The first graph (3) shows the neural network model during training. We can see v
     \label{fig:pca_combined}
 \end{figure}
 
-Below (4.a), we can see all the differesnt fields of the confusion matrix. If we wanted to optimize the average quality of our sold apples without caring about waste, we would choose a model with as few false positives as possible, while tolerating some bad apples to increase throughput would lower false negatives, so it heavily depends on the use case, we maximized accuracy (True-Positives).
+Below (4.a), we can see all the different fields of the confusion matrix. If we wanted to optimize the average quality of our sold apples without caring about waste, we would choose a model with as few false positives as possible, while tolerating some bad apples to increase throughput would lower false negatives, so it heavily depends on the use case, we maximized accuracy.
 
 \begin{figure}[h]
     \begin{subfigure}{0.45\textwidth} 
@@ -187,14 +175,12 @@ Below (4.a), we can see all the differesnt fields of the confusion matrix. If we
     \label{fig:pca_combined}
 \end{figure}
 
-The neighboring graph (4.b) shows the 95% confidence interval for the accuracy of the neural network and random forest, the CI was calculated by k-fold cross-validation. We can see that the neural network outperforms the other approaches, with an accuracy of close to 94%. Taking a look at other evaluative metrics (5.a) for the machine learning models, this impression gets confirmed. The neural network is the stronger across the board for all metrics. Including Recall, F1 Balanced Accuracy, Specificity and Precision.
+The neighboring graph (4.b) shows the 95% confidence interval, the CI was calculated by k-fold cross-validation. We can see that the neural network clearly outperforms the other approaches, with an accuracy of around 94% and up to 96%. Taking a look at other evaluative metrics (5.a) the neural network is the stronger across the board for all metrics. Including Recall, F1, Balanced Accuracy, Specificity and Precision.
 
-The following graph (5.b) shows the precision-recall curve. In our case, the curve only starts to dip at the very end, which is good because it means we are not losing F1 score while moving the threshold between precision and recall. The closer the AUC is to 1, the better the model distinguishes between positive and negative cases. We can also see some differences between the model.
+The following graph (5.b) shows the precision-recall curve. In our case, the curve only starts to dip at the very end, which is good because it means we are not losing F1 score while moving the threshold between precision and recall. The closer the AUC is to 1, the better the model distinguishes between positive and negative cases.
 
 ## Reflection
 
-The deep learning approach using a neural network proved to be fruitful and practical. While the other methods achieved respectable outcomes, the neural network's performance was superior. The computational costs were very limited during the analysis, but might prove problematic during scale-up. The high number of parameters made tuning challenging. Here a more comprehensive tuning approach would probably give better results for both models.
+The deep learning approach using a neural network proved to be fruitful and practical. While the other methods achieved respectable outcomes, the neural network's performance was superior. The computational costs were very limited during the analysis, but might prove problematic during scale-up. A more comprehensive for tuning the hyperparameters would probably give better results. Also for validation and training more data would lead to a more robust evaluation and training process.
 
-A key drawback of neural networks is the lack of information; unlike methods such as PCA or decision trees, we cannot ascertain the relative importance of features, which can be important to explain the decision. Additionally, the validation and training were based on the current dataset, more data would lead to a more robust evaluation and training process.
-
-Concrete implementation goals and setting are essential when selecting the best model for a task. For instance, assessing if an apple is poisonous or edible vs. how it looks, is some cases might tolerate higher error rates in our classification than in others. Nonetheless, this example highlights the potential of data analysis and deep learning methods to address complex problems and the practicality of obtaining results with them. Comparing Apples and Oranges is possible.
+A key drawback of neural networks is the lack of transparency; unlike methods such as PCA or decision trees, we cannot ascertain the relative importance of features. Concrete implementation goals and setting are essential when selecting the best approach and model for a task. For instance, assessing if an apple is poisonous or edible vs. how it looks, is some cases might tolerate higher error rates in our classification than in others. Nonetheless, this example highlights the potential of data analysis and deep learning methods to address complex problems and the practicality of obtaining results with them. Comparing Apples and Oranges is possible.
